@@ -1,0 +1,7 @@
+# text files
+*.txt
+*.log
+
+# executable and link files
+*.out
+*.o
