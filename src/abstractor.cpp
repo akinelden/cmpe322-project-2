@@ -235,7 +235,7 @@ result process_abstract(const char name, const string &outputFile, const string 
 
     string text = "";
     {
-        ifstream file(abstract);
+        ifstream file("../abstracts/" + abstract);
         string line;
         while (getline(file, line))
             text += (line + " ");
