@@ -12,6 +12,7 @@
 #include <vector>
 #include <queue>
 #include <unordered_set>
+#include <algorithm>
 #include <shared_mutex>
 
 using namespace std;
@@ -50,7 +51,7 @@ struct thread_parameters
 input_parameters get_input_params(string &inputFile);
 pthread_t *create_start_thread(char name, const string &outputFile, int nResult, const vector<string>& query, safe_data<queue<string>> *abstracts, safe_data<vector<result>> *globalResults);
 void *thread_process(thread_parameters *params);
-result process_abstract(const char name, const string &outputFile, const string &abstract, const vector<string>& query);
+result process_abstract(const char name, const string &outputFile, const string &abstract, const vector<string>& query, double minScore);
 double jaccard_score(const string &abstractText, const vector<string> &query);
 string get_summary(const string &abstractText, const vector<string> &query);
 int insert_result(result res, vector<result> *results, int nResult, int startIndex = 0);
@@ -150,6 +151,11 @@ input_parameters get_input_params(string &inputFile)
     getline(file, line);
     vector<string> *pQuery = tokenize_string(line, " ");
 
+    // get the unique set of words from query vector
+    sort(pQuery->begin(), pQuery->end());
+    auto it = unique(pQuery->begin(), pQuery->end());
+    pQuery->erase(it, pQuery->end());
+
     queue<string> *pAbstracts = new queue<string>();
     // read following A number of lines
     int i = 0;
@@ -196,7 +202,9 @@ void *thread_process(thread_parameters *params)
             abstract = abstracts->data->front();
             abstracts->data->pop();
         }
-        result res = process_abstract(params->name, params->outputFile, abstract, params->query);
+        double minScore = localResults.size() < nResult ? -1 : localResults.back().score;
+        result res = process_abstract(params->name, params->outputFile, abstract, params->query, minScore);
+        if (res.score > minScore)
         insert_result(res, &localResults, nResult);
     }
 
@@ -217,7 +225,7 @@ void *thread_process(thread_parameters *params)
     return nullptr;
 };
 
-result process_abstract(const char name, const string &outputFile, const string &abstract, const vector<string> &query)
+result process_abstract(const char name, const string &outputFile, const string &abstract, const vector<string> &query, double minScore)
 {
     {
         ofstream file(outputFile, ios::app);
@@ -235,10 +243,30 @@ result process_abstract(const char name, const string &outputFile, const string 
     }
     
     double score = jaccard_score(text, query);
-    string summary = get_summary(text, query);
+    string summary = "";
+    // only calculate the summary if score is greater than min score of localResults
+    if (score > minScore)
+        summary = get_summary(text, query);
     return { abstract, score, summary };
 }
 
-double jaccard_score(const string &abstractText, const vector<string> &query) {return 0.0;};
-string get_summary(const string &abstractText, const vector<string> &query) {return "";};
+double jaccard_score(const string &abstractText, const vector<string> &query) 
+{
+    auto tokens = tokenize_string(abstractText, " ");
+    unordered_set<string> uset;
+    uset.reserve(tokens->size());
+    for (string s : *tokens)
+        uset.insert(s);
+    uset.erase(".");
+
+    // find number of intersecting elements
+    int intersect = 0;
+    for (string q : query)
+        intersect += uset.count(q);
+
+    // union is sum - intersection
+    int _union = uset.size() + query.size() - intersect;
+
+    return (double) intersect / (double) _union;
+}
 int insert_result(result res, vector<result> *results, int nResult, int startIndex) {return 0;};
