@@ -49,12 +49,12 @@ struct thread_parameters
 };
 
 input_parameters get_input_params(string &inputFile);
-pthread_t *create_start_thread(char name, const string &outputFile, int nResult, const vector<string>& query, safe_data<queue<string>> *abstracts, safe_data<vector<result>> *globalResults);
+pthread_t *create_start_thread(char name, const string &outputFile, int nResult, const vector<string> &query, safe_data<queue<string>> *abstracts, safe_data<vector<result>> *globalResults);
 void *thread_process(thread_parameters *params);
-result process_abstract(const char name, const string &outputFile, const string &abstract, const vector<string>& query, double minScore);
+result process_abstract(const char name, const string &outputFile, const string &abstract, const vector<string> &query, double minScore);
 double jaccard_score(const string &abstractText, const vector<string> &query);
 string get_summary(const string &abstractText, const vector<string> &query);
-int insert_result(result res, vector<result> *results, int nResult, int startIndex = 0);
+int insert_result(result res, vector<result> &results, int nResult, int startIndex = 0);
 
 int main(int argc, char *argv[])
 {
@@ -105,11 +105,26 @@ int main(int argc, char *argv[])
         pthread_join(*pThread, NULL);
     }
 
-    // bool status = compare_write_results(results, outputFile);
-    // if (status)
-    //     return 0;
-    // else
-    //     return 1;
+    {
+        ofstream file(outputFile, ios::app);
+        file.precision(4);
+        file << "###" << endl;
+        
+        unique_lock lock(globalResults._mutex);
+        int i = 1;
+        for (auto res : *globalResults.data)
+        {
+            file << "Result " << i << ":" << endl;
+            file << "File: " << res.file << endl;
+            file << "Score: " << fixed << res.score << endl;
+            file << "Summary: " << res.summary << endl;
+            file << "###" << endl;
+            i++;
+        }
+
+        file.close();
+    }
+
     return 0;
 }
 
@@ -205,7 +220,7 @@ void *thread_process(thread_parameters *params)
         double minScore = localResults.size() < nResult ? -1 : localResults.back().score;
         result res = process_abstract(params->name, params->outputFile, abstract, params->query, minScore);
         if (res.score > minScore)
-        insert_result(res, &localResults, nResult);
+            insert_result(res, localResults, nResult);
     }
 
     // try to insert localResults to globalResults by comparing their scores
@@ -214,10 +229,10 @@ void *thread_process(thread_parameters *params)
         int index = 0;
         for (auto res : localResults)
         {
-            index = insert_result(res, globalResults->data, nResult, index);
+            index = insert_result(res, *globalResults->data, nResult, index);
             // if index is equal to nResult, it means the objects score is less than every element in the array
             // so don't process remaining items since their score is lower than the current one
-            if (index == nResult)
+            if (index >= nResult)
                 break;
         }
     }
@@ -238,19 +253,23 @@ result process_abstract(const char name, const string &outputFile, const string 
         ifstream file("../abstracts/" + abstract);
         string line;
         while (getline(file, line))
-            text += (line + " ");
+        {
+            text += line;
+            if (text.back() != ' ')
+                text += " ";
+        }
         file.close();
     }
-    
+
     double score = jaccard_score(text, query);
     string summary = "";
     // only calculate the summary if score is greater than min score of localResults
     if (score > minScore)
         summary = get_summary(text, query);
-    return { abstract, score, summary };
+    return {abstract, score, summary};
 }
 
-double jaccard_score(const string &abstractText, const vector<string> &query) 
+double jaccard_score(const string &abstractText, const vector<string> &query)
 {
     auto tokens = tokenize_string(abstractText, " ");
     unordered_set<string> uset;
@@ -267,6 +286,60 @@ double jaccard_score(const string &abstractText, const vector<string> &query)
     // union is sum - intersection
     int _union = uset.size() + query.size() - intersect;
 
-    return (double) intersect / (double) _union;
+    return (double)intersect / (double)_union;
 }
-int insert_result(result res, vector<result> *results, int nResult, int startIndex) {return 0;};
+
+string get_summary(const string &abstractText, const vector<string> &query)
+{
+    unordered_set<string> querySet;
+    querySet.reserve(query.size());
+    for (auto s : query)
+        querySet.insert(s);
+
+    auto sentences = tokenize_string(abstractText, ".");
+
+    vector<string> summarySentences;
+    summarySentences.reserve(sentences->size());
+    for (string sent : *sentences)
+    {
+        auto tokens = tokenize_string(sent, " ");
+        for (string s : *tokens)
+        {
+            if (querySet.count(s))
+            {
+                summarySentences.push_back(sent);
+                break;
+            }
+        }
+    }
+
+    string summary = "";
+    for (string sent : summarySentences)
+    {
+        if (sent.back() != ' ')
+            sent += " ";
+        summary += (sent + ". ");
+    }
+    return summary;
+}
+
+int insert_result(result res, vector<result> &results, int nResult, int startIndex)
+{
+    if (results.size() >= nResult && res.score < results[nResult - 1].score)
+        return nResult;
+
+    vector<result>::iterator it;
+    for (it = results.begin() + startIndex; it != results.end(); it++)
+    {
+        if (it->score < res.score)
+            break;
+    }
+
+    int insertedIndex = it - results.begin();
+
+    results.insert(it, res);
+    if (results.size() > nResult)
+        results.erase(results.begin() + nResult, results.end());
+    
+    return insertedIndex;
+}
