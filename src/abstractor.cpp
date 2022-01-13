@@ -69,6 +69,12 @@ int main(int argc, char *argv[])
     // the path of the output file
     string outputFile = string(argv[2]);
 
+    {
+        ofstream file(outputFile, ios::out);
+        file << "";
+        file.close();
+    }
+
     auto params = get_input_params(inputFile);
 
     safe_data<queue<string>> abstracts;
