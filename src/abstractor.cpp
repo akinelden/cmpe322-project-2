@@ -145,7 +145,7 @@ vector<string> *tokenize_string(const string &line, const string &delim)
         }
         start = end + delim.size();
     }
-
+    
     return tokens;
 }
 
@@ -279,7 +279,6 @@ double jaccard_score(const string &abstractText, const vector<string> &query)
     uset.reserve(tokens->size());
     for (string s : *tokens)
         uset.insert(s);
-    uset.erase(".");
 
     // find number of intersecting elements
     int intersect = 0;
