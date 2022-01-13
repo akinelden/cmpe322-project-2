@@ -18,7 +18,7 @@
 using namespace std;
 
 template <typename T>
-struct safe_data
+struct shared_data
 {
     shared_mutex _mutex;
     T *data;
@@ -44,12 +44,12 @@ struct thread_parameters
     int nResult;
     const string outputFile;
     const vector<string> query;
-    safe_data<queue<string>> *abstracts;
-    safe_data<vector<result>> *globalResults;
+    shared_data<queue<string>> *abstracts;
+    shared_data<vector<result>> *globalResults;
 };
 
 input_parameters get_input_params(string &inputFile);
-pthread_t *create_start_thread(char name, const string &outputFile, int nResult, const vector<string> &query, safe_data<queue<string>> *abstracts, safe_data<vector<result>> *globalResults);
+pthread_t *create_start_thread(char name, const string &outputFile, int nResult, const vector<string> &query, shared_data<queue<string>> *abstracts, shared_data<vector<result>> *globalResults);
 void *thread_process(thread_parameters *params);
 result process_abstract(const char name, const string &outputFile, const string &abstract, const vector<string> &query, double minScore);
 double jaccard_score(const string &abstractText, const vector<string> &query);
@@ -77,13 +77,13 @@ int main(int argc, char *argv[])
 
     auto params = get_input_params(inputFile);
 
-    safe_data<queue<string>> abstracts;
+    shared_data<queue<string>> abstracts;
     {
         unique_lock lock(abstracts._mutex);
         abstracts.data = params.abstracts;
     }
 
-    safe_data<vector<result>> globalResults;
+    shared_data<vector<result>> globalResults;
     {
         unique_lock lock(globalResults._mutex);
         vector<result> *results = new vector<result>();
@@ -192,7 +192,7 @@ input_parameters get_input_params(string &inputFile)
     return params;
 }
 
-pthread_t *create_start_thread(char name, const string &outputFile, int nResult, const vector<string> &query, safe_data<queue<string>> *abstracts, safe_data<vector<result>> *globalResults)
+pthread_t *create_start_thread(char name, const string &outputFile, int nResult, const vector<string> &query, shared_data<queue<string>> *abstracts, shared_data<vector<result>> *globalResults)
 {
     pthread_t *thread = new pthread_t();
     thread_parameters *tParams = new thread_parameters{name, nResult, outputFile, query, abstracts, globalResults};
