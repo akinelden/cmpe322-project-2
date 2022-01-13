@@ -1,8 +1,18 @@
-// The project aims to communicate with a child process through pipes.
-// stdin, stdout and stderr of the child process are binded with three pipes
-// and parent process sends inputs and takes outputs through corresponding pipes.
-//
-// @author: Mehmet Akın Elden
+/** 
+ * The project aims to process a list of files in a multi-threaded program.
+ * The program reads the number of threads, abstract file list, query words 
+ * and number of requested results parameters from the input file.
+ * It puts the abstract file list into a FIFO queue, initializes a vector
+ * for results and protects both of them with mutexes. Seperate threads
+ * are created and these data structures are passed to them. Using read/write
+ * mutex structures, each thread takes an abstract from the queue, process it
+ * find the jaccard score, and return the result. Best results from each thread
+ * is written to a global result vector when the thread finishes its job.
+ * Finally when all threads are done, main thread writes the best results
+ * to the output file.
+ * 
+ * @author: Mehmet Akın Elden
+ */
 
 #include <iostream>
 #include <fstream>
@@ -17,6 +27,13 @@
 
 using namespace std;
 
+/**
+ * This struct is used when a data is to be shared between 
+ * threads. It contains a shared_mutex which provides
+ * read/write lock mechanism and a generic data structure.
+ * Before accessing the inner data element, one must lock
+ * the _mutex with read or write lock.
+ */
 template <typename T>
 struct shared_data
 {
@@ -24,6 +41,17 @@ struct shared_data
     T *data;
 };
 
+/**
+ * This struct is used to collect parameters inside 
+ * input file. The data is not in shared_data struct since
+ * input parameters are read in main thread.
+ * 
+ *  nThread : number of threads T
+ *  nAbstract : number of abstracts A
+ *  nResult : number of results N
+ *  query : pointer to a vector containing query words
+ *  abstracts : pointer to a FIFO queue containing list of abstract files
+ */
 struct input_parameters
 {
     int nThread, nAbstract, nResult;
@@ -31,6 +59,13 @@ struct input_parameters
     queue<string> *abstracts;
 };
 
+/**
+ * This struct is used to store result of a processed abstract.
+ * 
+ *  file : name of the abstract file
+ *  score : jaccard score of the abstract file
+ *  summary : sentences containing at least one word from query
+ */
 struct result
 {
     string file;
@@ -38,6 +73,24 @@ struct result
     string summary;
 };
 
+/**
+ * This struct is used to store the parameters 
+ * that are passed to the threads.
+ * Abstracts queue and globalResults vector are stored in
+ * shared_data struct since they are used and changed by thread
+ * concurrently. However, since query vector is small (cost of 
+ * cloning for each thread is small) and is not needed
+ * to be changed, it is passed as a constant vector 
+ * instead of shared_data.
+ * 
+ *  name : name of the thread like "A"
+ *  nResult : number of results expected at the end of the program
+ *  outputFile : the path of the output file
+ *  query : the query vector
+ *  abstracts : shared FIFO queue which contains abstracts list and protected with mutex
+ *  globalResults : shared result vector which contains best results from threads and protected with mutex.
+ *                  the logic behind using a globalResults structure is explained in the main.
+ */
 struct thread_parameters
 {
     char name;
@@ -48,8 +101,42 @@ struct thread_parameters
     shared_data<vector<result>> *globalResults;
 };
 
-input_parameters get_input_params(string &inputFile);
+/**
+ * Function used to get input parameters from the input file.
+ * 
+ * @param inputFile the path of the input file
+ * @return the input parameters as a struct
+ */
+input_parameters get_input_params(const string &inputFile);
+
+/**
+ * Function used to create and start a thread. It packs the given parameters 
+ * in a thread_parameters struct and passes it to newly created thread.
+ * If thread is successfully created and started, returns the pointer
+ * to the thread.
+ * 
+ * @param name name of the thread to be created
+ * @param outputFile the path of the output file
+ * @param nResult number of results expected from the program
+ * @param query the query vector
+ * @param abstracts queue for abstract list in a shared_data struct
+ * @param globalResults vector for storing results in a shared_data struct
+ * @return the pointer to the created thread
+ */
 pthread_t *create_start_thread(char name, const string &outputFile, int nResult, const vector<string> &query, shared_data<queue<string>> *abstracts, shared_data<vector<result>> *globalResults);
+
+/**
+ * Function executed inside each thread. Following actions are taken in this function:
+ * 1. Thread local variables are initialized including the localResults vector
+ *      which keeps the best N number of results of the thread.
+ * 2. An abstract is popped from the queue (mutex required)
+ * 3. The abstract is processed with process_abstract function
+ * 4. The result is inserted to localResults vector if its score is high enough
+ * 5. Go back to step 2 until the queue is emptied.
+ * 6. Compare the local results with global results and insert the ones with higher score (mutex required)
+ * 
+ * @param params the thread parameters struct
+ */
 void *thread_process(thread_parameters *params);
 result process_abstract(const char name, const string &outputFile, const string &abstract, const vector<string> &query, double minScore);
 double jaccard_score(const string &abstractText, const vector<string> &query);
@@ -155,7 +242,7 @@ vector<string> *tokenize_string(const string &line, const string &delim)
     return tokens;
 }
 
-input_parameters get_input_params(string &inputFile)
+input_parameters get_input_params(const string &inputFile)
 {
     ifstream file(inputFile);
     if (!file)
