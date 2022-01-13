@@ -130,18 +130,21 @@ int main(int argc, char *argv[])
 
 vector<string> *tokenize_string(const string &line, const string &delim)
 {
-    string cp(line);
     auto tokens = new vector<string>();
     tokens->reserve(100);
-    size_t index;
-    do
+    int found = 0;
+    int start = 0;
+    int end;
+    while (found < line.size() && found != string::npos)
     {
-        index = cp.find(delim);
-        // to prevent cases of double space etc.
-        if (index > 0)
-            tokens->push_back(cp.substr(0, index));
-        cp.erase(0, index + delim.size());
-    } while (index != string::npos);
+        found = line.find(delim, start);
+        end = found == string::npos ? line.size() : found;
+        if (end - start > 0)
+        {
+            tokens->push_back(line.substr(start, end - start));
+        }
+        start = end + delim.size();
+    }
 
     return tokens;
 }
