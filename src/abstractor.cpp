@@ -316,6 +316,8 @@ string get_summary(const string &abstractText, const vector<string> &query)
     string summary = "";
     for (string sent : summarySentences)
     {
+        if (sent.front() == ' ')
+            sent.erase(sent.begin());
         if (sent.back() != ' ')
             sent += " ";
         summary += (sent + ". ");
